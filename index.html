@@ -679,10 +679,8 @@ async function addRow(rowData) {
   try {
     await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
-      mode: 'no-cors',
       body: JSON.stringify({ action:'addRow', row:rowData })
     });
-    // no-cors means we can't read the response, assume success
     plantRows.push(rowData);
     updateSidebarStats();
     setSyncState('ok','Saved!');
@@ -709,7 +707,6 @@ async function updateRow(plantName, updatedRow) {
   try {
     await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
-      mode: 'no-cors',
       body: JSON.stringify({ action:'updateRow', rowIndex: sheetRowIndex, values: updatedRow })
     });
     plantRows[idx] = updatedRow;
@@ -733,7 +730,6 @@ async function deleteRow(plantName) {
   try {
     await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
-      mode: 'no-cors',
       body: JSON.stringify({ action:'deleteRow', rowIndex: sheetRowIndex })
     });
     plantRows.splice(idx, 1);
