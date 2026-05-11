@@ -727,8 +727,9 @@ async function loadAll() {
 }
 
 async function fetchSheet(sheetName) {
-  const url = `${APPS_SCRIPT_URL}?sheet=${encodeURIComponent(sheetName)}`;
-  const res = await fetch(url, { method:'GET', redirect:'follow' });
+  // Use a cache-busting param to avoid stale responses
+  const url = `${APPS_SCRIPT_URL}?sheet=${encodeURIComponent(sheetName)}&t=${Date.now()}`;
+  const res = await fetch(url, { redirect:'follow', cache:'no-store' });
   const text = await res.text();
   try {
     return JSON.parse(text);
@@ -741,10 +742,10 @@ async function fetchSheet(sheetName) {
 async function addRow(rowData) {
   setSyncState('syncing','Saving...');
   try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      body: JSON.stringify({ action:'addRow', row:rowData })
-    });
+    const addUrl = APPS_SCRIPT_URL
+      + '?action=addRow'
+      + '&data=' + encodeURIComponent(JSON.stringify(rowData));
+    await fetch(addUrl, { redirect:'follow', cache:'no-store' });
     plantRows.push(rowData);
     updateSidebarStats();
     setSyncState('ok','Saved!');
@@ -764,10 +765,11 @@ async function updateRow(plantName, updatedRow) {
   if (idx === -1) { showToast('Could not find plant to update'); return; }
 
   try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      body: JSON.stringify({ action:'updateRow', plantName: plantName, values: updatedRow })
-    });
+    const updateUrl = APPS_SCRIPT_URL
+      + '?action=updateRow'
+      + '&plantName=' + encodeURIComponent(plantName)
+      + '&data=' + encodeURIComponent(JSON.stringify(updatedRow));
+    await fetch(updateUrl, { redirect:'follow', cache:'no-store' });
     plantRows[idx] = updatedRow;
     updateSidebarStats();
     setSyncState('ok','Saved!');
@@ -786,10 +788,10 @@ async function deleteRow(plantName) {
   if (idx === -1) { showToast('Could not find plant to delete'); return; }
 
   try {
-    await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      body: JSON.stringify({ action:'deleteRow', plantName: plantName })
-    });
+    const deleteUrl = APPS_SCRIPT_URL
+      + '?action=deleteRow'
+      + '&plantName=' + encodeURIComponent(plantName);
+    await fetch(deleteUrl, { redirect:'follow', cache:'no-store' });
     plantRows.splice(idx, 1);
     updateSidebarStats();
     setSyncState('ok','Deleted');
