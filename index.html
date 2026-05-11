@@ -527,15 +527,73 @@ function col(row, name) {
   return i >= 0 ? String(row[i] || '').trim() : '';
 }
 
+function extractInsectCount(text) {
+  if (!text.trim()) return 0;
+
+  // Try "a total of X unique insect species" or "X unique insect species"
+  const totalMatch = text.match(/(?:total\s+of\s+)?(\d+)\s+unique\s+insect\s+species/i);
+  if (totalMatch) return parseInt(totalMatch[1]);
+
+  // Try "supports X species" or "X documented species"
+  const supportsMatch = text.match(/supports?\s+(?:a\s+total\s+of\s+)?(\d+)\s+species/i);
+  if (supportsMatch) return parseInt(supportsMatch[1]);
+
+  // Try "over X species" or "400+ species"
+  const overMatch = text.match(/(?:over|more\s+than)\s+(\d+)\s+species|(\d+)\+\s+species/i);
+  if (overMatch) return parseInt(overMatch[1] || overMatch[2]);
+
+  // Try "X moths and butterflies" or "X caterpillar species"
+  const lepMatch = text.match(/(\d+)\s+(?:types?\s+of\s+)?(?:moths?|butterflies|caterpillar|lepidoptera)\s+species/i);
+  if (lepMatch) return parseInt(lepMatch[1]);
+
+  // Fall back to comma count for old format entries
+  return text.split(/[,;]|\band\b/).map(s=>s.trim()).filter(Boolean).length;
+}
+
+function insectDisplayLabel(row) {
+  const w = col(row,'Specific Wildlife/Insects');
+  if (!w.trim()) return '0 insects';
+  const count = extractInsectCount(w);
+
+  // If text mentions 400+ or "over X" show as "400+ species"
+  const overMatch = w.match(/(?:over|more\s+than)\s+(\d+)\s+species|(\d+)\+\s+species/i);
+  if (overMatch) {
+    const n = parseInt(overMatch[1] || overMatch[2]);
+    return n + '+ species';
+  }
+  // If it parsed from narrative, show as "X documented"
+  const totalMatch = w.match(/(?:total\s+of\s+)?(\d+)\s+unique\s+insect\s+species/i);
+  if (totalMatch) return count + ' documented';
+
+  return count + ' insects';
+}
+
+function insectCount(row) {
+  return extractInsectCount(col(row,'Specific Wildlife/Insects'));
+}
+
 function calcScore(row) {
   const w = col(row,'Specific Wildlife/Insects').toLowerCase();
   const e = col(row,'Ecological Benefits').toLowerCase();
   const n = col(row,'Notes').toLowerCase();
   const all = w+' '+e+' '+n;
   let score = 10;
+
+  // Lepidoptera bonus — still keyword based
   score += LEPI_KW.filter(kw=>w.includes(kw)).length * 5;
+
+  // Bonus based on documented species count
+  const count = extractInsectCount(col(row,'Specific Wildlife/Insects'));
+  if (count >= 100) score += 80;
+  else if (count >= 50) score += 50;
+  else if (count >= 20) score += 30;
+  else if (count >= 10) score += 15;
+  else if (count >= 5)  score += 8;
+
+  // Keystone bonus for 400+ species
   const km = all.match(KEYSTONE_RX);
   if (km && parseInt(km[1])>=400) score += 100;
+
   if (FOUNDATION_RX.test(all)) score += 20;
   if (SPECIALIST_RX.test(all)) score = Math.round(score*1.5);
   return score;
@@ -548,17 +606,13 @@ function classifyTier(row) {
   const all=w+' '+e+' '+n;
   const km=all.match(KEYSTONE_RX);
   if(km&&parseInt(km[1])>=400) return 'keystone';
+  // Also keystone if documented count >= 100
+  if(extractInsectCount(col(row,'Specific Wildlife/Insects'))>=100) return 'keystone';
   if(SPECIALIST_RX.test(all)) return 'specialist';
   const g=col(row,'Growth Habit').toLowerCase();
   if(/sedge|grass|graminoid|fern|ground.?cover/.test(g+' '+all)&&LEPI_KW.some(kw=>w.includes(kw))) return 'foundation';
   if(FOUNDATION_RX.test(all)) return 'foundation';
   return 'general';
-}
-
-function insectCount(row) {
-  const w = col(row,'Specific Wildlife/Insects');
-  if (!w.trim()) return 0;
-  return w.split(/[,;]|\band\b/).map(s=>s.trim()).filter(Boolean).length;
 }
 
 // ── Data loading ───────────────────────────────────────────────────────────
@@ -1072,9 +1126,17 @@ function renderAddForm(container, quickMode) {
   container.appendChild(card);
 }
 
+function isDuplicate(name) {
+  return plantRows.some(r => col(r,'Common Name').toLowerCase() === name.toLowerCase());
+}
+
 function submitQuickAdd() {
   const name = document.getElementById('qa-name').value.trim();
   if (!name) { showToast('Please enter a plant name'); return; }
+  if (isDuplicate(name)) {
+    showToast('⚠️ ' + name + ' is already in your garden');
+    return;
+  }
   const ref = refData[name.toLowerCase()] || {};
   const row = new Array(H.length).fill('');
   row[H.indexOf('Common Name')]    = ref.commonName || name;
@@ -1091,6 +1153,10 @@ function submitQuickAdd() {
 function submitFullAdd() {
   const name = document.getElementById('f-name').value.trim();
   if (!name) { showToast('Please enter a plant name'); return; }
+  if (isDuplicate(name)) {
+    showToast('⚠️ ' + name + ' is already in your garden');
+    return;
+  }
   const row = new Array(H.length).fill('');
   const g = id => document.getElementById(id)?.value?.trim() || '';
   row[H.indexOf('Common Name')]         = name;
@@ -1246,7 +1312,8 @@ function makeLeaderboard() {
   const card=document.createElement('div'); card.className='card wide';
   const scored=plantRows.map(row=>({
     name:col(row,'Common Name'), score:calcScore(row),
-    tier:classifyTier(row), insects:insectCount(row), row
+    tier:classifyTier(row), insects:insectCount(row),
+    insectLabel:insectDisplayLabel(row), row
   })).filter(p=>p.name);
   const TIERS=[
     {key:'keystone',  label:'Keystone',    emoji:'🌳',color:'#8b3a1e',bg:'rgba(139,58,30,0.12)',border:'rgba(139,58,30,0.3)',  desc:'Support hundreds of species — the ecological backbone of your garden'},
@@ -1265,7 +1332,7 @@ function makeLeaderboard() {
         <div class="lb-rank">${medal}</div>
         <div class="lb-name-wrap"><div class="lb-name">${p.name}</div>
           <div class="lb-bar-track"><div class="lb-bar" style="width:${bw}%;background:${tier.color}"></div></div></div>
-        <div class="lb-meta"><span class="lb-score" style="color:${tier.color}">${p.score}</span><span class="lb-insects">${p.insects} insects</span></div>
+        <div class="lb-meta"><span class="lb-score" style="color:${tier.color}">${p.score}</span><span class="lb-insects">${p.insectLabel}</span></div>
       </div>`;
     }).join('');
     return `<div class="lb-tier" style="border-color:${tier.border};background:${tier.bg}">
