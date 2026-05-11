@@ -530,19 +530,31 @@ function col(row, name) {
 function extractInsectCount(text) {
   if (!text.trim()) return 0;
 
-  // Try "a total of X unique insect species" or "X unique insect species"
+  // "a total unique insect count of 24 documented species"
+  const countOf = text.match(/total\s+unique\s+insect\s+count\s+of\s+(\d+)/i);
+  if (countOf) return parseInt(countOf[1]);
+
+  // "a total of X unique insect species" or "X unique insect species"
   const totalMatch = text.match(/(?:total\s+of\s+)?(\d+)\s+unique\s+insect\s+species/i);
   if (totalMatch) return parseInt(totalMatch[1]);
 
-  // Try "supports X species" or "X documented species"
-  const supportsMatch = text.match(/supports?\s+(?:a\s+total\s+of\s+)?(\d+)\s+species/i);
+  // "supports X species" or "X documented species"
+  const supportsMatch = text.match(/supports?\s+(?:a\s+total\s+of\s+)?(\d+)\s+(?:unique\s+)?(?:insect\s+)?species/i);
   if (supportsMatch) return parseInt(supportsMatch[1]);
 
-  // Try "over X species" or "400+ species"
+  // "supporting a total unique insect count of X"
+  const supportingMatch = text.match(/supporting\s+a\s+total\s+(?:unique\s+)?insect\s+count\s+of\s+(\d+)/i);
+  if (supportingMatch) return parseInt(supportingMatch[1]);
+
+  // "X documented species"
+  const documentedMatch = text.match(/(\d+)\s+documented\s+species/i);
+  if (documentedMatch) return parseInt(documentedMatch[1]);
+
+  // "over X species" or "400+ species"
   const overMatch = text.match(/(?:over|more\s+than)\s+(\d+)\s+species|(\d+)\+\s+species/i);
   if (overMatch) return parseInt(overMatch[1] || overMatch[2]);
 
-  // Try "X moths and butterflies" or "X caterpillar species"
+  // "X moths and butterflies" or "X caterpillar species"
   const lepMatch = text.match(/(\d+)\s+(?:types?\s+of\s+)?(?:moths?|butterflies|caterpillar|lepidoptera)\s+species/i);
   if (lepMatch) return parseInt(lepMatch[1]);
 
@@ -555,15 +567,13 @@ function insectDisplayLabel(row) {
   if (!w.trim()) return '0 insects';
   const count = extractInsectCount(w);
 
-  // If text mentions 400+ or "over X" show as "400+ species"
+  // 400+ style
   const overMatch = w.match(/(?:over|more\s+than)\s+(\d+)\s+species|(\d+)\+\s+species/i);
-  if (overMatch) {
-    const n = parseInt(overMatch[1] || overMatch[2]);
-    return n + '+ species';
-  }
-  // If it parsed from narrative, show as "X documented"
-  const totalMatch = w.match(/(?:total\s+of\s+)?(\d+)\s+unique\s+insect\s+species/i);
-  if (totalMatch) return count + ' documented';
+  if (overMatch) return parseInt(overMatch[1] || overMatch[2]) + '+ species';
+
+  // Any narrative format that gave us a real number
+  const narrativeMatch = w.match(/total\s+unique\s+insect\s+count\s+of\s+\d+|total\s+of\s+\d+\s+unique|supporting\s+a\s+total|\d+\s+documented\s+species|\d+\s+unique\s+insect/i);
+  if (narrativeMatch) return count + ' documented';
 
   return count + ' insects';
 }
