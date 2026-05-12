@@ -403,6 +403,10 @@ body{
       <div class="nav-item" onclick="showPage('quickadd')" id="nav-quickadd">
         <span class="nav-icon">⚡</span> Quick Add
       </div>
+      <div class="nav-section">Tools</div>
+      <div class="nav-item" onclick="showPage('diagnostics')" id="nav-diagnostics">
+        <span class="nav-icon">🔬</span> Diagnostics
+      </div>
     </nav>
     <div class="sidebar-stats" id="sidebar-stats">
       <div class="sidebar-stat">
@@ -845,6 +849,7 @@ function renderCurrentPage() {
   else if (currentPage==='plants')   renderPlantsTable(content);
   else if (currentPage==='add')      renderAddForm(content, false);
   else if (currentPage==='quickadd') renderAddForm(content, true);
+  else if (currentPage==='diagnostics') renderDiagnostics(content);
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
@@ -1186,6 +1191,141 @@ function submitFullAdd() {
   row[H.indexOf('Status')]              = g('f-status');
   row[H.indexOf('Notes')]               = g('f-notes');
   addRow(row).then(()=>{ showPage('plants'); });
+}
+
+// ── Diagnostics ──────────────────────────────────────────────────────────
+function renderDiagnostics(container) {
+  if (!plantRows.length) {
+    container.innerHTML = '<div class="empty-state">No plants loaded yet.</div>';
+    return;
+  }
+
+  const TIER_COLORS = {
+    keystone:'#8b3a1e', specialist:'#5a8fa8',
+    foundation:'#7aaa58', general:'#c4973a'
+  };
+  const TIER_LABELS = {
+    keystone:'🌳 Keystone', specialist:'🦋 Specialist',
+    foundation:'🌱 Foundation', general:'🌿 High Utility'
+  };
+
+  // Analyse every plant
+  const results = plantRows.map(row => {
+    const name     = col(row, 'Common Name');
+    const wildText = col(row, 'Specific Wildlife/Insects');
+    const ecoText  = col(row, 'Ecological Benefits');
+    const notesText= col(row, 'Notes');
+    const score    = calcScore(row);
+    const tier     = classifyTier(row);
+    const count    = extractInsectCount(wildText);
+    const label    = insectDisplayLabel(row);
+    const all      = (wildText + ' ' + ecoText + ' ' + notesText).toLowerCase();
+
+    // Which bonuses fired
+    const bonuses = [];
+    bonuses.push('Base: 10');
+    const lepiHits = LEPI_KW.filter(kw => wildText.toLowerCase().includes(kw));
+    if (lepiHits.length) bonuses.push(`Lepi ×${lepiHits.length} (+${lepiHits.length*5}): ${lepiHits.slice(0,3).join(', ')}`);
+    if (count >= 100) bonuses.push('100+ species (+80)');
+    else if (count >= 50) bonuses.push('50+ species (+50)');
+    else if (count >= 20) bonuses.push('20+ species (+30)');
+    else if (count >= 10) bonuses.push('10+ species (+15)');
+    else if (count >= 5)  bonuses.push('5+ species (+8)');
+    const km = all.match(KEYSTONE_RX);
+    if (km && parseInt(km[1])>=400) bonuses.push('Keystone 400+ (+100)');
+    if (FOUNDATION_RX.test(all)) bonuses.push('Foundation (+20)');
+    if (SPECIALIST_RX.test(all)) bonuses.push('Specialist ×1.5');
+
+    // Warnings
+    const warnings = [];
+    if (!wildText.trim()) warnings.push('⚠ Wildlife/Insects column is empty');
+    if (count === 0) warnings.push('⚠ Could not parse insect count');
+    if (count > 0 && count < 3 && wildText.length > 100)
+      warnings.push('⚠ Long text but low count — check phrasing');
+    if (!ecoText.trim()) warnings.push('⚠ Ecological Benefits column is empty');
+    if (!col(row,'Bloom Time').trim()) warnings.push('⚠ Bloom Time missing');
+    if (!col(row,'Sun Requirement').trim()) warnings.push('⚠ Sun Requirement missing');
+
+    return { name, score, tier, count, label, bonuses, warnings, wildText };
+  }).filter(p => p.name).sort((a,b) => b.score - a.score);
+
+  // Summary stats
+  const tierCounts = { keystone:0, specialist:0, foundation:0, general:0 };
+  results.forEach(r => tierCounts[r.tier]++);
+  const withWarnings = results.filter(r => r.warnings.length > 0).length;
+  const unparsed = results.filter(r => r.count === 0 && col(plantRows.find(row=>col(row,'Common Name')===r.name)||[],'Specific Wildlife/Insects').trim()).length;
+
+  const summaryHTML = `
+    <div class="card wide" style="margin-bottom:1.5rem;">
+      <div class="card-title">📊 Parse Summary</div>
+      <div class="card-sub">Overview of how the dashboard is reading your data</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:0.8rem;margin-bottom:1rem;">
+        ${Object.entries(tierCounts).map(([tier,count])=>`
+          <div style="background:rgba(255,255,255,0.04);border:1px solid ${TIER_COLORS[tier]}44;border-radius:10px;padding:0.8rem;text-align:center;">
+            <div style="font-size:1.4rem;font-family:'Playfair Display',serif;color:${TIER_COLORS[tier]}">${count}</div>
+            <div style="font-size:0.75rem;color:var(--sage);margin-top:0.2rem;">${TIER_LABELS[tier]}</div>
+          </div>`).join('')}
+        <div style="background:rgba(196,151,58,0.1);border:1px solid rgba(196,151,58,0.3);border-radius:10px;padding:0.8rem;text-align:center;">
+          <div style="font-size:1.4rem;font-family:'Playfair Display',serif;color:#c4973a">${withWarnings}</div>
+          <div style="font-size:0.75rem;color:var(--sage);margin-top:0.2rem;">⚠ Need attention</div>
+        </div>
+        <div style="background:rgba(139,58,30,0.1);border:1px solid rgba(139,58,30,0.3);border-radius:10px;padding:0.8rem;text-align:center;">
+          <div style="font-size:1.4rem;font-family:'Playfair Display',serif;color:#c87a5a">${unparsed}</div>
+          <div style="font-size:0.75rem;color:var(--sage);margin-top:0.2rem;">Count unparsed</div>
+        </div>
+      </div>
+    </div>`;
+
+  // Per-plant table
+  const rowsHTML = results.map(r => {
+    const tierColor = TIER_COLORS[r.tier];
+    const hasWarnings = r.warnings.length > 0;
+    return `
+      <tr style="${hasWarnings?'background:rgba(196,151,58,0.05)':''}">
+        <td>
+          <div style="color:var(--mist);font-size:0.85rem;cursor:pointer;" onclick="openPlantModal('${r.name.replace(/'/g,"\'")}')">
+            ${hasWarnings?'⚠ ':''}${r.name}
+          </div>
+        </td>
+        <td>
+          <span style="background:${tierColor}22;border:1px solid ${tierColor}44;color:${tierColor};
+            border-radius:100px;padding:0.15rem 0.6rem;font-size:0.72rem;white-space:nowrap;">
+            ${TIER_LABELS[r.tier]}
+          </span>
+        </td>
+        <td style="font-size:0.85rem;color:var(--mist);text-align:center;">${r.score}</td>
+        <td style="font-size:0.82rem;color:${r.count===0&&r.name?'var(--rust)':'var(--sage)'};">
+          ${r.label}
+        </td>
+        <td style="font-size:0.75rem;color:var(--sage);max-width:260px;">
+          ${r.bonuses.join('<br>')}
+        </td>
+        <td style="font-size:0.75rem;color:#c4973a;max-width:200px;">
+          ${r.warnings.join('<br>') || '<span style="color:var(--sage)">✓ OK</span>'}
+        </td>
+      </tr>`;
+  }).join('');
+
+  const tableHTML = `
+    <div class="card wide">
+      <div class="card-title">🔬 Per-Plant Parse Results</div>
+      <div class="card-sub">Sorted by score · Click a plant name to open its modal · ⚠ = needs attention</div>
+      <div style="overflow-x:auto;">
+        <table class="plant-table">
+          <thead><tr>
+            <th>Plant</th>
+            <th>Tier</th>
+            <th style="text-align:center">Score</th>
+            <th>Insect Count</th>
+            <th>Score Breakdown</th>
+            <th>Warnings</th>
+          </tr></thead>
+          <tbody>${rowsHTML}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  container.innerHTML = summaryHTML + tableHTML;
 }
 
 // ── Dynamic form options ──────────────────────────────────────────────────
