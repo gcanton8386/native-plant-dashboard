@@ -1421,13 +1421,38 @@ const DEFINITIONS = {
 };
 
 function wrapDefinitions(text) {
-  if (!text) return text;
-  let result = text;
+  if (!text) return String(text);
+  let result = String(text);
   for (const [term, def] of Object.entries(DEFINITIONS)) {
-    const rx = new RegExp('\b(' + term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')\b', 'g');
-    result = result.replace(rx, `<span class="def-term">$1<span class="def-tooltip">${def}</span></span>`);
+    const escaped = def.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    const rx = new RegExp('\\b(' + term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')\\b','g');
+    result = result.replace(rx,
+      '<span class="def-term" data-def="' + escaped + '" onmouseenter="showDefTooltip(this)" onmouseleave="hideDefTooltip()">$1</span>'
+    );
   }
   return result;
+}
+
+function showDefTooltip(el) {
+  hideDefTooltip();
+  const tip = document.createElement('div');
+  tip.id = 'def-floating-tip';
+  tip.className = 'def-tooltip';
+  tip.style.cssText = 'display:block;position:fixed;z-index:3000;max-width:260px;pointer-events:none;';
+  tip.textContent = el.dataset.def;
+  document.body.appendChild(tip);
+  const rect = el.getBoundingClientRect();
+  let top = rect.top - tip.offsetHeight - 8;
+  let left = rect.left + rect.width/2 - tip.offsetWidth/2;
+  if (top < 8) top = rect.bottom + 8;
+  if (left < 8) left = 8;
+  if (left + 260 > window.innerWidth - 8) left = window.innerWidth - 268;
+  tip.style.top  = top  + 'px';
+  tip.style.left = left + 'px';
+}
+
+function hideDefTooltip() {
+  document.getElementById('def-floating-tip')?.remove();
 }
 
 // ── Journal functions ─────────────────────────────────────────────────────
