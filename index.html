@@ -399,18 +399,6 @@ body{
 
   /* ── Definition tooltip ── */
   .def-term { border-bottom:1px dotted var(--sage); cursor:help; position:relative; display:inline; }
-  .def-tooltip {
-    display:none; position:absolute; bottom:calc(100% + 6px); left:50%;
-    transform:translateX(-50%);
-    background:#1a2e14; border:1px solid rgba(122,170,88,0.3);
-    border-radius:8px; padding:0.6rem 0.8rem;
-    font-size:0.78rem; color:var(--mist); line-height:1.5;
-    width:240px; z-index:2000; pointer-events:none;
-    box-shadow:0 4px 16px rgba(0,0,0,0.5);
-    font-style:normal; font-weight:300;
-  }
-  .def-term:hover .def-tooltip,
-  .def-term:focus .def-tooltip { display:block; }
 
 </style>
 </head>
@@ -1438,12 +1426,26 @@ function showDefTooltip(el) {
   const tip = document.createElement('div');
   tip.id = 'def-floating-tip';
   tip.className = 'def-tooltip';
-  tip.style.cssText = 'display:block;position:fixed;z-index:3000;max-width:260px;pointer-events:none;';
+  tip.style.cssText = `
+    display:block;position:fixed;z-index:3000;
+    width:260px;max-width:260px;
+    white-space:normal;word-wrap:break-word;
+    pointer-events:none;
+    background:#1a2e14;
+    border:1px solid rgba(122,170,88,0.3);
+    border-radius:8px;
+    padding:0.6rem 0.8rem;
+    font-size:0.78rem;
+    color:var(--mist);
+    line-height:1.5;
+    box-shadow:0 4px 16px rgba(0,0,0,0.5);
+  `;
   tip.textContent = el.dataset.def;
   document.body.appendChild(tip);
   const rect = el.getBoundingClientRect();
-  let top = rect.top - tip.offsetHeight - 8;
-  let left = rect.left + rect.width/2 - tip.offsetWidth/2;
+  const tipH = tip.getBoundingClientRect().height;
+  let top  = rect.top - tipH - 8;
+  let left = rect.left + rect.width/2 - 130;
   if (top < 8) top = rect.bottom + 8;
   if (left < 8) left = 8;
   if (left + 260 > window.innerWidth - 8) left = window.innerWidth - 268;
