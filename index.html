@@ -377,6 +377,41 @@ body{
   .autocomplete-item em { color:var(--sage); font-style:normal; font-size:0.75rem; margin-left:0.4rem; }
   .autocomplete-empty { padding:0.7rem 0.9rem; font-size:0.82rem; color:var(--sage); font-style:italic; }
 
+
+  /* ── Journal ── */
+  .activity-bar-wrap { display:flex; flex-direction:column; gap:8px; margin-top:0.5rem; }
+  .activity-row { display:flex; align-items:center; gap:0.8rem; cursor:pointer; transition:opacity 0.15s; }
+  .activity-row:hover { opacity:0.8; }
+  .activity-plant-name { width:180px; flex-shrink:0; font-size:0.82rem; color:var(--mist); text-align:right; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .activity-bar-track { flex:1; height:22px; background:rgba(255,255,255,0.04); border-radius:4px; position:relative; }
+  .activity-bar-fill { height:100%; border-radius:4px; display:flex; align-items:center; padding:0 8px; transition:width 0.6s ease; }
+  .activity-bar-label { font-size:0.72rem; color:rgba(0,0,0,0.7); font-weight:500; white-space:nowrap; }
+  .activity-count { width:36px; flex-shrink:0; font-size:0.78rem; color:var(--sage); text-align:right; }
+  .journal-feed { display:flex; flex-direction:column; gap:0.6rem; margin-top:0.5rem; }
+  .journal-entry { background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:10px; padding:0.8rem 1rem; }
+  .journal-entry-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:0.3rem; }
+  .journal-entry-plant { font-size:0.85rem; color:var(--mist); font-weight:400; cursor:pointer; }
+  .journal-entry-plant:hover { color:var(--cream); text-decoration:underline; }
+  .journal-entry-date { font-size:0.72rem; color:var(--sage); }
+  .journal-entry-obs { font-size:0.82rem; color:var(--text); line-height:1.5; }
+  .journal-entry-weather { font-size:0.72rem; color:var(--sage); margin-top:0.3rem; font-style:italic; }
+  .log-banner { background:rgba(122,170,88,0.1); border:1px solid rgba(122,170,88,0.25); border-radius:10px; padding:0.8rem 1.1rem; margin-bottom:1.5rem; font-size:0.82rem; color:var(--sage); }
+
+  /* ── Definition tooltip ── */
+  .def-term { border-bottom:1px dotted var(--sage); cursor:help; position:relative; display:inline; }
+  .def-tooltip {
+    display:none; position:absolute; bottom:calc(100% + 6px); left:50%;
+    transform:translateX(-50%);
+    background:#1a2e14; border:1px solid rgba(122,170,88,0.3);
+    border-radius:8px; padding:0.6rem 0.8rem;
+    font-size:0.78rem; color:var(--mist); line-height:1.5;
+    width:240px; z-index:2000; pointer-events:none;
+    box-shadow:0 4px 16px rgba(0,0,0,0.5);
+    font-style:normal; font-weight:300;
+  }
+  .def-term:hover .def-tooltip,
+  .def-term:focus .def-tooltip { display:block; }
+
 </style>
 </head>
 <body>
@@ -402,6 +437,13 @@ body{
       </div>
       <div class="nav-item" onclick="showPage('quickadd')" id="nav-quickadd">
         <span class="nav-icon">⚡</span> Quick Add
+      </div>
+      <div class="nav-section">Journal</div>
+      <div class="nav-item" onclick="showPage('journal')" id="nav-journal">
+        <span class="nav-icon">📓</span> Activity Feed
+      </div>
+      <div class="nav-item" onclick="showPage('logentry')" id="nav-logentry">
+        <span class="nav-icon">➕</span> Log Sighting
       </div>
       <div class="nav-section">Tools</div>
       <div class="nav-item" onclick="showPage('diagnostics')" id="nav-diagnostics">
@@ -482,6 +524,7 @@ const SHEET_HEADERS = ['Common Name','Scientific Name','Family','Growth Habit','
 let refData  = {}; // { commonName: { sci, family, growth, duration, priority } }
 let plantRows = []; // rows from Plant Inventory sheet (arrays)
 let actualHeaders = []; // real column headers from the sheet
+let journalRows  = []; // rows from Wildlife Journal sheet
 let currentPage = 'dashboard';
 
 // ── Keyword groups ────────────────────────────────────────────────────────
@@ -633,11 +676,12 @@ function classifyTier(row) {
 async function loadAll() {
   setSyncState('syncing','Loading...');
   try {
-    const [inv, p1, p2, p3] = await Promise.all([
+    const [inv, p1, p2, p3, journal] = await Promise.all([
       fetchSheet('Plant Inventory'),
       fetchSheet('Priority 1 – Putnam County'),
       fetchSheet('Priority 2 – Hudson Valley'),
       fetchSheet('Priority 3 – NY State'),
+      fetchSheet('Wildlife Journal'),
     ]);
 
     console.log('inv type:', typeof inv, Array.isArray(inv) ? inv.length+' rows' : inv);
@@ -706,6 +750,20 @@ async function loadAll() {
         });
       console.log('plantRows loaded:', plantRows.length, '— first row:', plantRows[0]);
     }
+
+    // Parse journal rows
+    if (journal && Array.isArray(journal) && journal.length > 1) {
+      let jHdr = 0;
+      for (let i=0;i<Math.min(5,journal.length);i++) {
+        if (Array.isArray(journal[i]) && journal[i].some(c=>String(c).trim()==='Date')) {
+          jHdr=i; break;
+        }
+      }
+      journalRows = journal.slice(jHdr+1).filter(r=>r.some(c=>String(c).trim()));
+    } else {
+      journalRows = [];
+    }
+    console.log('Journal rows:', journalRows.length);
 
     updateSidebarStats();
     setSyncState('ok', 'Synced with Google Sheets');
@@ -850,6 +908,8 @@ function renderCurrentPage() {
   else if (currentPage==='add')      renderAddForm(content, false);
   else if (currentPage==='quickadd') renderAddForm(content, true);
   else if (currentPage==='diagnostics') renderDiagnostics(content);
+  else if (currentPage==='journal')     renderJournal(content);
+  else if (currentPage==='logentry')    renderLogEntry(content);
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
@@ -1328,6 +1388,258 @@ function renderDiagnostics(container) {
   container.innerHTML = summaryHTML + tableHTML;
 }
 
+
+// ── Definitions dictionary ────────────────────────────────────────────────
+const DEFINITIONS = {
+  'Forb':          'A broad-leaved, non-woody flowering plant that is not a grass, sedge, or rush. Most native wildflowers are forbs. They die back each winter and re-emerge from their roots in spring.',
+  'Herbaceous':    'Any plant lacking persistent woody stems above ground. Both forbs and grasses are herbaceous — soft-tissued growth that dies back seasonally rather than forming wood.',
+  'Graminoid':     'The collective term for grass-like plants including true grasses (Poaceae), sedges (Carex), and rushes (Juncus). Distinguished by narrow blade-like leaves and inconspicuous flowers.',
+  'Sedge':         'Grass-like plants in the family Cyperaceae, mostly genus Carex. Often identified by the saying "sedges have edges" — stems are triangular in cross-section. Many thrive in shade or wet conditions.',
+  'Rush':          'Grass-like plants in the family Juncaceae, mostly genus Juncus. Usually found in wet to moist habitats with round, pithy stems. Valuable in rain gardens and along pond edges.',
+  'Shrub':         'A woody perennial plant, typically multi-stemmed and shorter than a tree (generally under 15 feet). Provides year-round structure, nesting habitat, and berries for wildlife.',
+  'Vine':          'A plant that climbs, twines, or trails rather than supporting itself upright. Native vines like Virginia creeper and wild grape provide food and cover for wildlife.',
+  'Fern':          'A non-flowering vascular plant reproducing by spores rather than seeds. Provides lush ground cover in shady, moist spots and shelter for wildlife.',
+  'Aquatic':       'Plants adapted to grow in or at the margins of water. Includes emergent, floating-leaved, and submerged plants. Essential for pond and rain garden ecosystems.',
+  'Clumping':      'A growth form where the plant expands slowly from a central crown without spreading aggressively. Well-behaved and predictable in the garden.',
+  'Rhizomatous':   'A plant that spreads by underground horizontal stems called rhizomes, producing new shoots at intervals. Useful for naturalizing but may need management in formal beds.',
+  'Stoloniferous': 'A plant that spreads by above-ground horizontal stems called stolons (runners) which root at nodes to form new plants.',
+  'Perennial':     'A plant that lives for more than two years, dying back to the ground each winter and re-emerging from roots each spring.',
+  'Annual':        'A plant that completes its entire life cycle — germination, flowering, seed set, and death — within a single growing season.',
+  'Biennial':      'A plant that takes two years to complete its life cycle, typically growing foliage in year one and flowering in year two.',
+  'Dry':           'Soil that drains rapidly and rarely retains moisture. Common in sandy soils, south-facing slopes, or under building eaves. Plants here must be drought-tolerant once established.',
+  'Dry to Medium': 'Sites that drain well but retain modest moisture after rain. The most common garden condition and widest range for native plant selection.',
+  'Medium':        'Consistently moist but well-drained soil that does not dry out completely between rain events. The sweet spot for the widest variety of native plants.',
+  'Mesic':         'An ecological term meaning moderate moisture — essentially the same as medium. Balanced moisture: not too wet, not too dry, with good water-holding capacity and drainage.',
+  'Medium to Wet': 'Sites that stay consistently moist and may occasionally experience brief standing water after heavy rain, but drain within a day or two.',
+  'Wet':           'Sites with permanently or seasonally saturated soil — standing water may persist for days or weeks. Only plants adapted to waterlogged conditions will thrive here.',
+  'Full Sun':      'Six or more hours of direct sunlight per day. Most prairie and meadow plants prefer full sun.',
+  'Part Shade':    'Three to six hours of direct sun per day, with shade during the hottest afternoon hours. Good for woodland edge plants.',
+  'Full Shade':    'Less than three hours of direct sun per day. Suited for woodland understory plants that have adapted to low light conditions.',
+  'Host Plant':    'A plant that a specific insect species depends on to complete its life cycle, typically for egg-laying and larval feeding. Losing host plants can cause local extinction of dependent species.',
+  'Specialist':    'An insect that depends on one or a very small number of plant species to complete its life cycle. Specialists are more vulnerable to habitat loss than generalists.',
+  'Keystone':      'A species that has a disproportionately large ecological impact relative to its abundance. Keystone plants like oaks support hundreds of dependent species.',
+};
+
+function wrapDefinitions(text) {
+  if (!text) return text;
+  let result = text;
+  for (const [term, def] of Object.entries(DEFINITIONS)) {
+    const rx = new RegExp('\b(' + term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')\b', 'g');
+    result = result.replace(rx, `<span class="def-term">$1<span class="def-tooltip">${def}</span></span>`);
+  }
+  return result;
+}
+
+// ── Journal functions ─────────────────────────────────────────────────────
+function renderJournal(container) {
+  const grid = document.createElement('div');
+  grid.className = 'dash-grid';
+
+  // ── Activity by plant bar chart ───────────────────────────────────────
+  const actCard = document.createElement('div');
+  actCard.className = 'card wide';
+
+  if (!journalRows.length) {
+    actCard.innerHTML = `<div class="card-title">🌿 Activity by Plant</div>
+      <div class="card-sub">No sightings logged yet</div>
+      <div class="empty-state" style="padding:2rem 0;">
+        Start logging sightings to see which plants are most active in your yard.<br><br>
+        <button class="btn btn-primary" onclick="showPage('logentry')" style="margin-top:0.5rem;">➕ Log your first sighting</button>
+      </div>`;
+    grid.appendChild(actCard);
+    container.appendChild(grid);
+    return;
+  }
+
+  // Count sightings per plant
+  const plantCounts = {};
+  for (const row of journalRows) {
+    const plant = String(row[1]||'').trim();
+    if (!plant) continue;
+    plantCounts[plant] = (plantCounts[plant]||0) + 1;
+  }
+  const sorted = Object.entries(plantCounts).sort((a,b)=>b[1]-a[1]);
+  const maxCount = sorted[0]?.[1] || 1;
+  const BAR_COLORS = ['#7aaa58','#c4973a','#5a8fa8','#8b3a1e','#4a7a30',
+                      '#c8806a','#5a8a7a','#a87a4a','#7a8ab0','#9e6a7a'];
+
+  const barsHTML = sorted.map(([plant, count], i) => {
+    const pct = Math.round((count/maxCount)*100);
+    const color = BAR_COLORS[i % BAR_COLORS.length];
+    return `<div class="activity-row" onclick="showJournalForPlant('${plant.replace(/'/g,"\'")}')">
+      <div class="activity-plant-name" title="${plant}">🌿 ${plant}</div>
+      <div class="activity-bar-track">
+        <div class="activity-bar-fill" style="width:${pct}%;background:${color};">
+          <span class="activity-bar-label">${count} sighting${count!==1?'s':''}</span>
+        </div>
+      </div>
+      <div class="activity-count">${count}</div>
+    </div>`;
+  }).join('');
+
+  actCard.innerHTML = `<div class="card-title">🌿 Activity by Plant</div>
+    <div class="card-sub">Click a plant to see its sightings · ${journalRows.length} total observations across ${sorted.length} plants</div>
+    <div class="activity-bar-wrap">${barsHTML}</div>`;
+  grid.appendChild(actCard);
+
+  // ── Recent sightings feed ─────────────────────────────────────────────
+  const feedCard = document.createElement('div');
+  feedCard.className = 'card wide';
+  const recent = [...journalRows].reverse().slice(0, 15);
+  const feedHTML = recent.map(row => {
+    const date    = String(row[0]||'').trim();
+    const plant   = String(row[1]||'').trim();
+    const obs     = String(row[2]||'').trim();
+    const weather = String(row[3]||'').trim();
+    return `<div class="journal-entry">
+      <div class="journal-entry-header">
+        <span class="journal-entry-plant" onclick="openPlantModal('${plant.replace(/'/g,"\'")}')">🌿 ${plant||'Unknown plant'}</span>
+        <span class="journal-entry-date">${date}</span>
+      </div>
+      <div class="journal-entry-obs">${obs||'No observation recorded'}</div>
+      ${weather?`<div class="journal-entry-weather">🌤 ${weather}</div>`:''}
+    </div>`;
+  }).join('');
+  feedCard.innerHTML = `<div class="card-title">📋 Recent Sightings</div>
+    <div class="card-sub">Last ${recent.length} observations</div>
+    <div class="journal-feed">${feedHTML}</div>`;
+  grid.appendChild(feedCard);
+
+  container.appendChild(grid);
+}
+
+function showJournalForPlant(plantName) {
+  const entries = journalRows.filter(r => String(r[1]||'').trim().toLowerCase() === plantName.toLowerCase());
+  const items = entries.reverse().map(row => {
+    const date = String(row[0]||'').trim();
+    const obs  = String(row[2]||'').trim();
+    const wx   = String(row[3]||'').trim();
+    return `<div class="drawer-item" style="cursor:default;flex-direction:column;align-items:flex-start;gap:0.2rem;">
+      <div style="font-size:0.72rem;color:var(--sage);">${date}</div>
+      <div style="font-size:0.85rem;color:var(--cream);">${obs}</div>
+      ${wx?`<div style="font-size:0.72rem;color:var(--sage);font-style:italic;">🌤 ${wx}</div>`:''}
+    </div>`;
+  }).join('');
+  openDrawer('📓 ' + plantName, []);
+  // Override drawer content directly
+  document.getElementById('drawer-count').textContent = entries.length + ' sighting' + (entries.length!==1?'s':'');
+  document.getElementById('drawer-list').innerHTML = items || '<div class="no-data">No sightings for this plant yet</div>';
+  document.getElementById('plant-drawer').classList.add('open');
+}
+
+function renderLogEntry(container) {
+  const card = document.createElement('div');
+  card.className = 'card wide';
+
+  const today = new Date().toLocaleDateString('en-US', {year:'numeric',month:'2-digit',day:'2-digit'});
+
+  card.innerHTML = `
+    <div class="log-banner">📍 Field mode — log what you're seeing right now. Date auto-fills to today.</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input class="form-input" id="j-date" value="${today}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Plant *</label>
+        <div class="autocomplete-wrap">
+          <input class="form-input autocomplete-input" id="j-plant" placeholder="Which plant did you observe?" autocomplete="off">
+          <div class="autocomplete-dropdown" id="j-dropdown"></div>
+        </div>
+      </div>
+      <div class="form-group full">
+        <label class="form-label">What did you observe? *</label>
+        <textarea class="form-textarea" id="j-obs" placeholder="e.g. 3 Monarch butterflies nectaring, Bumblebee collecting pollen, Ruby-throated Hummingbird feeding..." style="min-height:100px;"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Weather / Conditions <span style="color:var(--sage);font-size:0.7rem;">(optional)</span></label>
+        <input class="form-input" id="j-weather" placeholder="e.g. Sunny, 72°F, light breeze">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes <span style="color:var(--sage);font-size:0.7rem;">(optional)</span></label>
+        <input class="form-input" id="j-notes" placeholder="Any other observations...">
+      </div>
+    </div>
+    <div style="margin-top:1.5rem;">
+      <button class="btn btn-primary" onclick="submitJournalEntry()" style="width:100%;justify-content:center;padding:0.7rem;">📓 Log Sighting</button>
+    </div>`;
+
+  container.appendChild(card);
+
+  // Wire autocomplete to existing plant inventory
+  requestAnimationFrame(() => {
+    const input    = document.getElementById('j-plant');
+    const dropdown = document.getElementById('j-dropdown');
+    if (!input || !dropdown) return;
+    let highlighted = -1;
+
+    function showSuggestions(val) {
+      const q = val.trim().toLowerCase();
+      if (!q) { dropdown.classList.remove('open'); return; }
+      // Search from actual plant inventory
+      const allNames = plantRows.map(r => col(r,'Common Name')).filter(Boolean).sort();
+      const matches  = allNames.filter(n => n.toLowerCase().includes(q)).slice(0,30);
+      if (!matches.length) {
+        dropdown.innerHTML = '<div class="autocomplete-empty">No plants found in your garden</div>';
+      } else {
+        dropdown.innerHTML = matches.map(name => {
+          const idx = name.toLowerCase().indexOf(q);
+          const hl  = name.slice(0,idx) + '<strong>' + name.slice(idx,idx+q.length) + '</strong>' + name.slice(idx+q.length);
+          return `<div class="autocomplete-item" data-name="${name}">${hl}</div>`;
+        }).join('');
+        dropdown.querySelectorAll('.autocomplete-item').forEach(el => {
+          el.addEventListener('mousedown', e => {
+            e.preventDefault();
+            input.value = el.dataset.name;
+            dropdown.classList.remove('open');
+          });
+        });
+      }
+      highlighted = -1;
+      dropdown.classList.add('open');
+    }
+
+    input.addEventListener('input',  () => showSuggestions(input.value));
+    input.addEventListener('focus',  () => { if (input.value.trim()) showSuggestions(input.value); });
+    input.addEventListener('blur',   () => setTimeout(() => dropdown.classList.remove('open'), 150));
+    input.addEventListener('keydown', e => {
+      const items = dropdown.querySelectorAll('.autocomplete-item');
+      if (e.key==='ArrowDown'){e.preventDefault();highlighted=Math.min(highlighted+1,items.length-1);items.forEach((el,i)=>el.classList.toggle('highlighted',i===highlighted));}
+      else if(e.key==='ArrowUp'){e.preventDefault();highlighted=Math.max(highlighted-1,-1);items.forEach((el,i)=>el.classList.toggle('highlighted',i===highlighted));}
+      else if(e.key==='Enter'&&highlighted>=0){e.preventDefault();const ch=items[highlighted]?.dataset?.name;if(ch){input.value=ch;dropdown.classList.remove('open');}}
+      else if(e.key==='Escape') dropdown.classList.remove('open');
+    });
+  });
+}
+
+async function submitJournalEntry() {
+  const plant = document.getElementById('j-plant').value.trim();
+  const obs   = document.getElementById('j-obs').value.trim();
+  if (!plant) { showToast('Please enter a plant name'); return; }
+  if (!obs)   { showToast('Please describe what you observed'); return; }
+
+  const date    = document.getElementById('j-date').value.trim();
+  const weather = document.getElementById('j-weather').value.trim();
+  const notes   = document.getElementById('j-notes').value.trim();
+  const row     = [date, plant, obs, weather, notes];
+
+  setSyncState('syncing','Saving...');
+  try {
+    const url = APPS_SCRIPT_URL
+      + '?action=addJournalEntry'
+      + '&data=' + encodeURIComponent(JSON.stringify(row));
+    await fetch(url, { redirect:'follow', cache:'no-store' });
+    journalRows.push(row);
+    showToast('Sighting logged ✓');
+    setSyncState('ok','Synced with Google Sheets');
+    showPage('journal');
+  } catch(err) {
+    console.error('Journal error:', err);
+    showToast('Could not save — check connection');
+    setSyncState('error','Save error');
+  }
+}
+
 // ── Dynamic form options ──────────────────────────────────────────────────
 function getSunOptions(selected='') {
   // Pull unique values from actual data, plus always include the standard three
@@ -1521,9 +1833,9 @@ function openPlantModal(name) {
     ${isIncomplete(row)?`<div style="background:rgba(196,151,58,0.1);border:1px solid rgba(196,151,58,0.3);border-radius:8px;padding:0.5rem 0.8rem;margin-bottom:0.8rem;font-size:0.78rem;color:#c4973a;">⚠️ Missing: ${missingFields(row).join(', ')}</div>`:''}
     <div class="modal-section-title">Quick Stats</div>
     <div class="modal-stats-grid">
-      ${stat('☀️ Sun',col(row,'Sun Requirement'))}${stat('💧 Moisture',col(row,'Moisture Level'))}
-      ${stat('🌿 Growth',col(row,'Growth Habit'))}${stat('📅 Bloom',col(row,'Bloom Time'))}
-      ${stat('⏳ Duration',col(row,'Duration'))}${stat('📍 Location',col(row,'Location in Yard'))}
+      ${stat('☀️ Sun',wrapDefinitions(col(row,'Sun Requirement')))}${stat('💧 Moisture',wrapDefinitions(col(row,'Moisture Level')))}
+      ${stat('🌿 Growth',wrapDefinitions(col(row,'Growth Habit')))}${stat('📅 Bloom',col(row,'Bloom Time'))}
+      ${stat('⏳ Duration',wrapDefinitions(col(row,'Duration')))}${stat('📍 Location',col(row,'Location in Yard'))}
       ${stat('🏷️ Status',col(row,'Status'))}${stat('🌍 Priority',col(row,'Priority'))}
       ${stat('🌿 Family',col(row,'Family'))}
     </div>
