@@ -1536,22 +1536,53 @@ function renderJournal(container) {
 }
 
 function showJournalForPlant(plantName) {
-  const entries = journalRows.filter(r => String(r[1]||'').trim().toLowerCase() === plantName.toLowerCase());
-  const items = entries.reverse().map(row => {
+  const entries = journalRows
+    .map((row, idx) => ({ row, idx }))
+    .filter(({row}) => String(row[1]||'').trim().toLowerCase() === plantName.toLowerCase())
+    .reverse();
+
+  const items = entries.map(({row, idx}) => {
     const date = String(row[0]||'').trim();
     const obs  = String(row[2]||'').trim();
     const wx   = String(row[3]||'').trim();
-    return `<div class="drawer-item" style="cursor:default;flex-direction:column;align-items:flex-start;gap:0.2rem;">
-      <div style="font-size:0.72rem;color:var(--sage);">${date}</div>
-      <div style="font-size:0.85rem;color:var(--cream);">${obs}</div>
-      ${wx?`<div style="font-size:0.72rem;color:var(--sage);font-style:italic;">🌤 ${wx}</div>`:''}
+    const safeP = plantName.replace(/'/g,"\'");
+    return `<div style="padding:0.6rem 0.4rem;border-bottom:1px solid rgba(122,170,88,0.06);">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.5rem;">
+        <div style="flex:1;">
+          <div style="font-size:0.72rem;color:var(--sage);margin-bottom:0.2rem;">${date}</div>
+          <div style="font-size:0.85rem;color:var(--cream);line-height:1.4;">${obs}</div>
+          ${wx?`<div style="font-size:0.72rem;color:var(--sage);font-style:italic;margin-top:0.2rem;">🌤 ${wx}</div>`:''}
+        </div>
+        <button onclick="confirmDeleteSighting(${idx},'${safeP}')"
+          style="background:none;border:none;color:rgba(200,100,80,0.6);cursor:pointer;font-size:1rem;padding:0.1rem 0.2rem;flex-shrink:0;transition:color 0.15s;"
+          onmouseover="this.style.color='#c87a5a'" onmouseout="this.style.color='rgba(200,100,80,0.6)'"
+          title="Delete this sighting">🗑</button>
+      </div>
     </div>`;
   }).join('');
+
   openDrawer('📓 ' + plantName, []);
-  // Override drawer content directly
   document.getElementById('drawer-count').textContent = entries.length + ' sighting' + (entries.length!==1?'s':'');
   document.getElementById('drawer-list').innerHTML = items || '<div class="no-data">No sightings for this plant yet</div>';
   document.getElementById('plant-drawer').classList.add('open');
+}
+
+function confirmDeleteSighting(rowIndex, plantName) {
+  const list = document.getElementById('drawer-list');
+  // Check if confirm already showing
+  if (document.getElementById('sighting-confirm-' + rowIndex)) return;
+  const confirm = document.createElement('div');
+  confirm.id = 'sighting-confirm-' + rowIndex;
+  confirm.style.cssText = 'background:rgba(139,58,30,0.1);border:1px solid rgba(139,58,30,0.3);border-radius:8px;padding:0.7rem;margin:0.5rem 0;text-align:center;';
+  const safeP = plantName.replace(/'/g,"\'");
+  confirm.innerHTML = `<div style="font-size:0.8rem;color:#c87a5a;margin-bottom:0.6rem;">Remove this sighting?</div>
+    <div style="display:flex;gap:0.5rem;justify-content:center;">
+      <button onclick="deleteJournalEntry(${rowIndex},'${safeP}')"
+        style="background:rgba(139,58,30,0.3);border:1px solid rgba(139,58,30,0.4);color:#c87a5a;border-radius:6px;padding:0.3rem 0.8rem;cursor:pointer;font-size:0.78rem;">Yes, remove</button>
+      <button onclick="document.getElementById('sighting-confirm-${rowIndex}').remove()"
+        style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--sage);border-radius:6px;padding:0.3rem 0.8rem;cursor:pointer;font-size:0.78rem;">Cancel</button>
+    </div>`;
+  list.prepend(confirm);
 }
 
 function renderLogEntry(container) {
@@ -1588,7 +1619,7 @@ function renderLogEntry(container) {
       </div>
     </div>
     <div style="margin-top:1.5rem;">
-      <button class="btn btn-primary" onclick="submitJournalEntry()" style="width:100%;justify-content:center;padding:0.7rem;">📓 Log Sighting</button>
+      <button id="j-submit-btn" class="btn btn-primary" onclick="submitJournalEntry()" style="width:100%;justify-content:center;padding:0.7rem;">📓 Log Sighting</button>
     </div>`;
 
   container.appendChild(card);
@@ -1640,10 +1671,22 @@ function renderLogEntry(container) {
 }
 
 async function submitJournalEntry() {
+  const btn = document.getElementById('j-submit-btn');
+  if (btn && btn.disabled) return; // prevent double-tap
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
   const plant = document.getElementById('j-plant').value.trim();
   const obs   = document.getElementById('j-obs').value.trim();
-  if (!plant) { showToast('Please enter a plant name'); return; }
-  if (!obs)   { showToast('Please describe what you observed'); return; }
+  if (!plant) {
+    showToast('Please enter a plant name');
+    if (btn) { btn.disabled = false; btn.textContent = '📓 Log Sighting'; }
+    return;
+  }
+  if (!obs) {
+    showToast('Please describe what you observed');
+    if (btn) { btn.disabled = false; btn.textContent = '📓 Log Sighting'; }
+    return;
+  }
 
   const date    = document.getElementById('j-date').value.trim();
   const weather = document.getElementById('j-weather').value.trim();
@@ -1664,6 +1707,33 @@ async function submitJournalEntry() {
     console.error('Journal error:', err);
     showToast('Could not save — check connection');
     setSyncState('error','Save error');
+    if (btn) { btn.disabled = false; btn.textContent = '📓 Log Sighting'; }
+  }
+}
+
+// ── Delete journal entry ─────────────────────────────────────────────────
+async function deleteJournalEntry(rowIndex, plantName) {
+  // rowIndex is index in journalRows array (0-based)
+  setSyncState('syncing','Deleting...');
+  try {
+    const url = APPS_SCRIPT_URL
+      + '?action=deleteJournalEntry'
+      + '&rowIndex=' + encodeURIComponent(rowIndex);
+    await fetch(url, { redirect:'follow', cache:'no-store' });
+    journalRows.splice(rowIndex, 1);
+    showToast('Sighting removed ✓');
+    setSyncState('ok','Synced with Google Sheets');
+    // Refresh the drawer for this plant
+    showJournalForPlant(plantName);
+    // If drawer is now empty, close it and refresh journal view
+    if (journalRows.filter(r=>String(r[1]||'').trim().toLowerCase()===plantName.toLowerCase()).length===0) {
+      closeDrawer();
+      if (currentPage==='journal') renderCurrentPage();
+    }
+  } catch(err) {
+    console.error('Delete journal error:', err);
+    showToast('Could not delete — check connection');
+    setSyncState('error','Delete error');
   }
 }
 
