@@ -1063,18 +1063,22 @@ function renderAddForm(container, quickMode) {
 
   if (quickMode) {
     card.innerHTML = `
-      <div class="quick-add-banner">⚡ Field mode — just the essentials. Fill in the rest later from the full Add Plant form.</div>
+      <div class="quick-add-banner">⚡ Field mode — search by common name <em>or</em> scientific name. Fill in the rest later.</div>
       <div class="form-grid">
         <div class="form-group full">
-          <label class="form-label">Common Name *</label>
+          <label class="form-label">Search by Common or Scientific Name *</label>
           <div class="autocomplete-wrap">
-            <input class="form-input autocomplete-input" id="qa-name" placeholder="Start typing a plant name..." autocomplete="off">
+            <input class="form-input autocomplete-input" id="qa-search" placeholder="Type common name or scientific name..." autocomplete="off">
             <div class="autocomplete-dropdown" id="qa-dropdown"></div>
           </div>
         </div>
         <div class="form-group">
+          <label class="form-label">Common Name <span class="autofill-badge">auto-fill</span></label>
+          <input class="form-input" id="qa-name" placeholder="Auto-fills">
+        </div>
+        <div class="form-group">
           <label class="form-label">Scientific Name <span class="autofill-badge">auto-fill</span></label>
-          <input class="form-input" id="qa-sci" readonly placeholder="Auto-fills">
+          <input class="form-input" id="qa-sci" placeholder="Auto-fills">
         </div>
         <div class="form-group">
           <label class="form-label">Priority <span class="autofill-badge">auto-fill</span></label>
@@ -1097,13 +1101,12 @@ function renderAddForm(container, quickMode) {
         <button class="btn btn-primary" onclick="submitQuickAdd()" style="flex:1">⚡ Add Plant</button>
         <button class="btn btn-secondary" onclick="showPage('add')">Full Form →</button>
       </div>`;
-    // Wire autocomplete after DOM insertion
     requestAnimationFrame(() => {
-      makeAutocomplete('qa-name', 'qa-dropdown', name => {
-        const ref = refData[name.toLowerCase()];
-        if (!ref) return;
-        document.getElementById('qa-sci').value = ref.scientific;
-        document.getElementById('qa-pri').value = ref.priority;
+      makeAutocompleteByEither('qa-search', 'qa-dropdown', (commonName, sciName) => {
+        const ref = findRef(commonName);
+        document.getElementById('qa-name').value = commonName;
+        document.getElementById('qa-sci').value  = sciName;
+        document.getElementById('qa-pri').value  = ref ? ref.priority : '';
       });
     });
   } else {
@@ -1111,11 +1114,15 @@ function renderAddForm(container, quickMode) {
       <div class="form-grid">
         <div class="form-group full"><div class="form-section-title">Identity</div></div>
         <div class="form-group full">
-          <label class="form-label">Common Name *</label>
+          <label class="form-label">Search by Common or Scientific Name *</label>
           <div class="autocomplete-wrap">
-            <input class="form-input autocomplete-input" id="f-name" placeholder="Start typing to search all 2,249 NY natives..." autocomplete="off">
+            <input class="form-input autocomplete-input" id="f-search" placeholder="Type common name or scientific name to search 2,249 NY natives..." autocomplete="off">
             <div class="autocomplete-dropdown" id="f-dropdown"></div>
           </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Common Name <span class="autofill-badge">auto-fill</span></label>
+          <input class="form-input" id="f-name" placeholder="Auto-fills">
         </div>
         <div class="form-group">
           <label class="form-label">Scientific Name <span class="autofill-badge">auto-fill</span></label>
@@ -1181,14 +1188,14 @@ function renderAddForm(container, quickMode) {
         <button class="btn btn-primary" onclick="submitFullAdd()" style="width:100%;justify-content:center;padding:0.7rem">Add to My Garden →</button>
       </div>`;
     requestAnimationFrame(() => {
-      makeAutocomplete('f-name', 'f-dropdown', name => {
-        const ref = refData[name.toLowerCase()];
-        if (!ref) return;
-        document.getElementById('f-sci').value    = ref.scientific;
-        document.getElementById('f-fam').value    = ref.family;
-        document.getElementById('f-growth').value = ref.growth;
-        document.getElementById('f-dur').value    = ref.duration;
-        document.getElementById('f-pri').value    = ref.priority;
+      makeAutocompleteByEither('f-search', 'f-dropdown', (commonName, sciName) => {
+        const ref = findRef(commonName) || findRef(sciName);
+        document.getElementById('f-name').value   = commonName;
+        document.getElementById('f-sci').value    = sciName;
+        document.getElementById('f-fam').value    = ref ? ref.family   : '';
+        document.getElementById('f-growth').value = ref ? ref.growth   : '';
+        document.getElementById('f-dur').value    = ref ? ref.duration : '';
+        document.getElementById('f-pri').value    = ref ? ref.priority : '';
       });
     });
   }
@@ -1200,20 +1207,22 @@ function isDuplicate(name) {
 }
 
 function submitQuickAdd() {
-  const name = document.getElementById('qa-name').value.trim();
-  if (!name) { showToast('Please enter a plant name'); return; }
-  if (isDuplicate(name)) {
+  const name    = document.getElementById('qa-name').value.trim();
+  const sciName = document.getElementById('qa-sci').value.trim();
+  const entryName = name || sciName;
+  if (!entryName) { showToast('Please search for a plant name'); return; }
+  if (name && isDuplicate(name)) {
     showToast('⚠️ ' + name + ' is already in your garden');
     return;
   }
-  const ref = refData[name.toLowerCase()] || {};
+  const ref = findRef(name) || findRef(sciName) || {};
   const row = new Array(H.length).fill('');
-  row[H.indexOf('Common Name')]    = ref.commonName || name;
-  row[H.indexOf('Scientific Name')]= ref.scientific || '';
-  row[H.indexOf('Family')]         = ref.family     || '';
-  row[H.indexOf('Growth Habit')]   = ref.growth     || '';
-  row[H.indexOf('Duration')]       = ref.duration   || '';
-  row[H.indexOf('Priority')]       = ref.priority   || '';
+  row[H.indexOf('Common Name')]    = name || ref.commonName || '';
+  row[H.indexOf('Scientific Name')]= sciName || ref.scientific || '';
+  row[H.indexOf('Family')]         = ref.family   || '';
+  row[H.indexOf('Growth Habit')]   = ref.growth   || '';
+  row[H.indexOf('Duration')]       = ref.duration || '';
+  row[H.indexOf('Priority')]       = document.getElementById('qa-pri').value.trim() || ref.priority || '';
   row[H.indexOf('Location in Yard')]= document.getElementById('qa-loc').value.trim();
   row[H.indexOf('Status')]         = document.getElementById('qa-status').value;
   addRow(row).then(()=>{ showPage('plants'); });
@@ -1924,6 +1933,82 @@ async function deleteJournalEntry(rowIndex, plantName) {
     showToast('Could not delete — check connection');
     setSyncState('error','Delete error');
   }
+}
+
+// ── Lookup by common or scientific name ──────────────────────────────────
+function findRef(query) {
+  if (!query) return null;
+  const q = query.trim().toLowerCase();
+  // Try common name first
+  if (refData[q]) return refData[q];
+  // Try scientific name
+  return Object.values(refData).find(r => r.scientific.toLowerCase() === q) || null;
+}
+
+function makeAutocompleteByEither(inputId, dropdownId, onSelect) {
+  const input    = document.getElementById(inputId);
+  const dropdown = document.getElementById(dropdownId);
+  if (!input || !dropdown) return;
+  let highlighted = -1;
+
+  function showSuggestions(val) {
+    const q = val.trim().toLowerCase();
+    if (!q) { dropdown.classList.remove('open'); return; }
+
+    const refs = Object.values(refData);
+    // Match against both common name and scientific name
+    const matches = refs.filter(r =>
+      r.commonName.toLowerCase().includes(q) ||
+      r.scientific.toLowerCase().includes(q)
+    ).slice(0, 40);
+
+    if (!matches.length) {
+      dropdown.innerHTML = '<div class="autocomplete-empty">No matches found</div>';
+    } else {
+      dropdown.innerHTML = matches.map(r => {
+        const cIdx = r.commonName.toLowerCase().indexOf(q);
+        const sIdx = r.scientific.toLowerCase().indexOf(q);
+        // Highlight whichever matched
+        let commonHL = r.commonName;
+        let sciHL    = `<em style="color:var(--sage);font-size:0.78rem;">${r.scientific}</em>`;
+        if (cIdx >= 0) {
+          commonHL = r.commonName.slice(0,cIdx) + '<strong>' + r.commonName.slice(cIdx,cIdx+q.length) + '</strong>' + r.commonName.slice(cIdx+q.length);
+        }
+        if (sIdx >= 0) {
+          const s = r.scientific;
+          sciHL = `<em style="color:var(--sage);font-size:0.78rem;">${s.slice(0,sIdx)}<strong>${s.slice(sIdx,sIdx+q.length)}</strong>${s.slice(sIdx+q.length)}</em>`;
+        }
+        return `<div class="autocomplete-item" data-common="${r.commonName}" data-sci="${r.scientific}">
+          <div>${commonHL}</div>
+          <div>${sciHL}</div>
+        </div>`;
+      }).join('');
+      dropdown.querySelectorAll('.autocomplete-item').forEach(el => {
+        el.addEventListener('mousedown', ev => {
+          ev.preventDefault();
+          dropdown.classList.remove('open');
+          onSelect(el.dataset.common, el.dataset.sci);
+        });
+      });
+    }
+    highlighted = -1;
+    dropdown.classList.add('open');
+  }
+
+  input.addEventListener('input',  () => showSuggestions(input.value));
+  input.addEventListener('focus',  () => { if (input.value.trim()) showSuggestions(input.value); });
+  input.addEventListener('blur',   () => setTimeout(() => dropdown.classList.remove('open'), 150));
+  input.addEventListener('keydown', e => {
+    const items = dropdown.querySelectorAll('.autocomplete-item');
+    if (e.key==='ArrowDown'){e.preventDefault();highlighted=Math.min(highlighted+1,items.length-1);items.forEach((el,i)=>el.classList.toggle('highlighted',i===highlighted));}
+    else if(e.key==='ArrowUp'){e.preventDefault();highlighted=Math.max(highlighted-1,-1);items.forEach((el,i)=>el.classList.toggle('highlighted',i===highlighted));}
+    else if(e.key==='Enter'&&highlighted>=0){
+      e.preventDefault();
+      const el=items[highlighted];
+      if(el){input.value=el.dataset.common;dropdown.classList.remove('open');onSelect(el.dataset.common,el.dataset.sci);}
+    }
+    else if(e.key==='Escape') dropdown.classList.remove('open');
+  });
 }
 
 // ── Dynamic form options ──────────────────────────────────────────────────
