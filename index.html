@@ -1273,52 +1273,75 @@ function renderGapAnalysis(container) {
   const grid = document.createElement('div');
   grid.className = 'dash-grid';
 
-  // ── Helper: get all text from a plant row ─────────────────────────────
+  const nameOf  = row => col(row,'Common Name');
   const wildOf  = row => col(row,'Specific Wildlife/Insects').toLowerCase();
   const ecoOf   = row => col(row,'Ecological Benefits').toLowerCase();
-  const growOf  = row => col(row,'Growth Habit').toLowerCase();
   const sunOf   = row => col(row,'Sun Requirement').toLowerCase();
   const moistOf = row => col(row,'Moisture Level').toLowerCase();
-  const bloomOf = row => col(row,'Bloom Time').toLowerCase();
+
+  // Helper: open drawer with plant names from a filtered set
+  function openGapDrawer(title, rows) {
+    const names = rows.map(r => nameOf(r)).filter(Boolean);
+    if (!names.length) {
+      openDrawer('🔍 ' + title, []);
+      document.getElementById('drawer-count').textContent = 'No plants match';
+      document.getElementById('drawer-list').innerHTML = '<div class="no-data">No plants in your collection match this category yet.</div>';
+      document.getElementById('plant-drawer').classList.add('open');
+    } else {
+      openDrawer('🔍 ' + title, names);
+    }
+  }
+
+  const clickStyle = 'cursor:pointer;transition:background 0.15s;border-radius:7px;padding:0 0.3rem;margin:0 -0.3rem;';
 
   // ── 1. Wildlife group coverage ────────────────────────────────────────
   const wildCoverage = WILDLIFE_GROUPS.map(g => {
     const supporting = plantRows.filter(r => g.keywords.some(kw => wildOf(r).includes(kw)));
-    return { label: g.label, count: supporting.length, pct: Math.round(supporting.length/plantRows.length*100) };
+    return { label:g.label, rows:supporting, count:supporting.length, pct:Math.round(supporting.length/plantRows.length*100), keywords:g.keywords };
   }).sort((a,b) => a.count - b.count);
-
-  const wildHTML = wildCoverage.map(g => {
-    const isGap = g.count === 0;
-    const isLow = g.count > 0 && g.pct < 15;
-    const color = isGap ? '#8b3a1e' : isLow ? '#c4973a' : '#7aaa58';
-    const badge = isGap ? '❌ Gap' : isLow ? '⚠️ Low' : '✓';
-    const barW  = Math.max(g.pct, g.count > 0 ? 3 : 0);
-    return `<div class="activity-row">
-      <div class="activity-plant-name" style="color:${color}">${g.label}</div>
-      <div class="activity-bar-track">
-        <div class="activity-bar-fill" style="width:${barW}%;background:${color}88;">
-          <span class="activity-bar-label">${g.count} plant${g.count!==1?'s':''}</span>
-        </div>
-      </div>
-      <div style="width:60px;flex-shrink:0;font-size:0.72rem;color:${color};text-align:right;">${badge}</div>
-    </div>`;
-  }).join('');
 
   const wildCard = document.createElement('div');
   wildCard.className = 'card wide';
   wildCard.innerHTML = `<div class="card-title">🦋 Wildlife Group Coverage</div>
-    <div class="card-sub">How many of your plants support each wildlife group · Red = no plants · Gold = fewer than 15%</div>
-    <div class="activity-bar-wrap" style="margin-top:0.8rem;">${wildHTML}</div>`;
+    <div class="card-sub">Click any row to see which plants support that group · Red = gap · Gold = fewer than 15%</div>
+    <div class="activity-bar-wrap" style="margin-top:0.8rem;" id="wild-bars"></div>`;
   grid.appendChild(wildCard);
+  requestAnimationFrame(() => {
+    const wrap = document.getElementById('wild-bars');
+    if (!wrap) return;
+    wildCoverage.forEach(g => {
+      const isGap=g.count===0, isLow=g.count>0&&g.pct<15;
+      const color=isGap?'#8b3a1e':isLow?'#c4973a':'#7aaa58';
+      const badge=isGap?'❌ Gap':isLow?'⚠️ Low':'✓';
+      const barW=Math.max(g.pct,g.count>0?3:0);
+      const row = document.createElement('div');
+      row.className = 'activity-row';
+      row.style.cssText = clickStyle;
+      row.title = g.count ? `Click to see ${g.count} plant${g.count!==1?'s':''}` : 'No plants yet';
+      row.innerHTML = `
+        <div class="activity-plant-name" style="color:${color}">${g.label}</div>
+        <div class="activity-bar-track">
+          <div class="activity-bar-fill" style="width:${barW}%;background:${color}88;">
+            <span class="activity-bar-label">${g.count} plant${g.count!==1?'s':''}</span>
+          </div>
+        </div>
+        <div style="width:60px;flex-shrink:0;font-size:0.72rem;color:${color};text-align:right;">${badge}</div>`;
+      row.addEventListener('click', () => openGapDrawer('🦋 ' + g.label, g.rows));
+      row.addEventListener('mouseover', () => row.style.background='rgba(255,255,255,0.04)');
+      row.addEventListener('mouseout',  () => row.style.background='');
+      wrap.appendChild(row);
+    });
+  });
 
   // ── 2. Seasonal bloom gaps ────────────────────────────────────────────
   const monthCounts = new Array(12).fill(0);
+  const monthPlantRows = Array.from({length:12}, ()=>[]);
   for (const row of plantRows) {
     const bloom = col(row,'Bloom Time');
     if (!bloom) continue;
     const range = parseBloomRange(bloom);
     if (!range) continue;
-    for (let m=range.start;m<=range.end;m++) monthCounts[m]++;
+    for (let m=range.start;m<=range.end;m++) { monthCounts[m]++; monthPlantRows[m].push(row); }
   }
   const gapMonths    = MONTHS.filter((_,i) => monthCounts[i] === 0);
   const lowMonths    = MONTHS.filter((_,i) => monthCounts[i] > 0 && monthCounts[i] < 3);
@@ -1326,94 +1349,126 @@ function renderGapAnalysis(container) {
 
   const seasonCard = document.createElement('div');
   seasonCard.className = 'card';
+  const maxC = Math.max(...monthCounts, 1);
   const seasonHTML = MONTHS.map((m,i) => {
-    const c = monthCounts[i];
-    const color = c===0?'#8b3a1e':c<3?'#c4973a':'#7aaa58';
-    return `<div style="text-align:center;">
+    const c=monthCounts[i];
+    const color=c===0?'#8b3a1e':c<3?'#c4973a':'#7aaa58';
+    const tip = c===0?'No plants blooming':c+' plant'+(c!==1?'s':'')+' — click to see';
+    return `<div style="text-align:center;cursor:${c?'pointer':'default'};" title="${tip}"
+      onclick="${c?`openGapDrawer('📅 ${m}', monthPlantRows[${i}])`:''}">
       <div style="font-size:0.72rem;color:${color};font-weight:500;">${c||'0'}</div>
       <div style="height:40px;display:flex;align-items:flex-end;justify-content:center;margin:4px 0;">
-        <div style="width:14px;height:${c?Math.max(8,Math.round(c/Math.max(...monthCounts)*36)):4}px;background:${color};border-radius:2px;opacity:${c?1:0.3};"></div>
+        <div style="width:14px;height:${c?Math.max(8,Math.round(c/maxC*36)):4}px;background:${color};border-radius:2px;opacity:${c?1:0.3};transition:opacity 0.15s;"
+          onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='${c?1:0.3}'"></div>
       </div>
       <div style="font-size:0.65rem;color:var(--sage);">${m}</div>
     </div>`;
   }).join('');
   seasonCard.innerHTML = `<div class="card-title">📅 Bloom Season Gaps</div>
-    <div class="card-sub">${coveredCount}/12 months covered</div>
+    <div class="card-sub">${coveredCount}/12 months covered · Click a bar to see blooming plants</div>
     <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:4px;margin-top:0.8rem;">${seasonHTML}</div>
     ${gapMonths.length?`<div style="margin-top:0.8rem;font-size:0.8rem;color:#c87a5a;background:rgba(139,58,30,0.1);border:1px solid rgba(139,58,30,0.25);border-radius:8px;padding:0.6rem 0.8rem;">
       ❌ No blooms: <strong>${gapMonths.join(', ')}</strong></div>`:''}
     ${lowMonths.length?`<div style="margin-top:0.5rem;font-size:0.8rem;color:#c4973a;background:rgba(196,151,58,0.1);border:1px solid rgba(196,151,58,0.25);border-radius:8px;padding:0.6rem 0.8rem;">
       ⚠️ Fewer than 3 plants blooming: <strong>${lowMonths.join(', ')}</strong></div>`:''}`;
+  // Expose monthPlantRows for onclick
+  window.monthPlantRows = monthPlantRows;
   grid.appendChild(seasonCard);
 
   // ── 3. Moisture habitat gaps ──────────────────────────────────────────
   const moistCard = document.createElement('div');
   moistCard.className = 'card';
-  const moistCoverage = MOISTURE_GROUPS.map(g => {
-    const count = plantRows.filter(r => g.keywords.some(kw => moistOf(r).includes(kw))).length;
-    return { label: g.label, count };
-  });
-  const moistHTML = moistCoverage.map(g => {
-    const color = g.count===0?'#8b3a1e':g.count<3?'#c4973a':'#7aaa58';
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0;border-bottom:1px solid rgba(122,170,88,0.06);">
-      <span style="font-size:0.82rem;color:var(--mist);">💧 ${g.label}</span>
-      <span style="font-size:0.8rem;color:${color};font-weight:500;">${g.count===0?'❌ Gap':g.count<3?`⚠️ ${g.count}`:g.count} plant${g.count!==1?'s':''}</span>
-    </div>`;
-  }).join('');
+  const moistCoverage = MOISTURE_GROUPS.map(g => ({
+    label: g.label,
+    rows: plantRows.filter(r => g.keywords.some(kw => moistOf(r).includes(kw))),
+    count: plantRows.filter(r => g.keywords.some(kw => moistOf(r).includes(kw))).length
+  }));
   moistCard.innerHTML = `<div class="card-title">💧 Moisture Habitat Coverage</div>
-    <div class="card-sub">Are you covering dry, medium, and wet conditions?</div>
-    <div style="margin-top:0.8rem;">${moistHTML}</div>`;
+    <div class="card-sub">Click any row to see matching plants</div>
+    <div style="margin-top:0.8rem;" id="moist-rows"></div>`;
   grid.appendChild(moistCard);
+  requestAnimationFrame(() => {
+    const wrap = document.getElementById('moist-rows');
+    if (!wrap) return;
+    moistCoverage.forEach(g => {
+      const color=g.count===0?'#8b3a1e':g.count<3?'#c4973a':'#7aaa58';
+      const el = document.createElement('div');
+      el.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0.4rem;border-bottom:1px solid rgba(122,170,88,0.06);cursor:pointer;border-radius:6px;margin:0 -0.4rem;transition:background 0.15s;';
+      el.innerHTML = `<span style="font-size:0.82rem;color:var(--mist);">💧 ${g.label}</span>
+        <span style="font-size:0.8rem;color:${color};font-weight:500;">${g.count===0?'❌ Gap':g.count<3?`⚠️ ${g.count}`:g.count} plant${g.count!==1?'s':''}</span>`;
+      el.addEventListener('click', () => openGapDrawer('💧 ' + g.label, g.rows));
+      el.addEventListener('mouseover', () => el.style.background='rgba(255,255,255,0.04)');
+      el.addEventListener('mouseout',  () => el.style.background='');
+      wrap.appendChild(el);
+    });
+  });
 
   // ── 4. Sun condition gaps ─────────────────────────────────────────────
   const sunCard = document.createElement('div');
   sunCard.className = 'card';
   const sunGroups = [
-    { label:'Full Sun',   keywords:['full sun'] },
-    { label:'Part Shade', keywords:['part shade','partial shade','part sun'] },
-    { label:'Full Shade', keywords:['full shade','shade'] },
+    {label:'Full Sun',   keywords:['full sun']},
+    {label:'Part Shade', keywords:['part shade','partial shade','part sun']},
+    {label:'Full Shade', keywords:['full shade','shade']},
   ];
   const sunCoverage = sunGroups.map(g => ({
     label: g.label,
-    count: plantRows.filter(r => g.keywords.some(kw => sunOf(r).toLowerCase().includes(kw))).length
+    rows: plantRows.filter(r => g.keywords.some(kw => sunOf(r).includes(kw))),
+    count: plantRows.filter(r => g.keywords.some(kw => sunOf(r).includes(kw))).length
   }));
-  const sunHTML = sunCoverage.map(g => {
-    const color = g.count===0?'#8b3a1e':g.count<3?'#c4973a':'#7aaa58';
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0;border-bottom:1px solid rgba(122,170,88,0.06);">
-      <span style="font-size:0.82rem;color:var(--mist);">☀️ ${g.label}</span>
-      <span style="font-size:0.8rem;color:${color};font-weight:500;">${g.count===0?'❌ Gap':g.count<3?`⚠️ ${g.count}`:g.count} plant${g.count!==1?'s':''}</span>
-    </div>`;
-  }).join('');
   sunCard.innerHTML = `<div class="card-title">☀️ Sun Condition Coverage</div>
-    <div class="card-sub">Are you covering all light conditions in your yard?</div>
-    <div style="margin-top:0.8rem;">${sunHTML}</div>`;
+    <div class="card-sub">Click any row to see matching plants</div>
+    <div style="margin-top:0.8rem;" id="sun-rows"></div>`;
   grid.appendChild(sunCard);
+  requestAnimationFrame(() => {
+    const wrap = document.getElementById('sun-rows');
+    if (!wrap) return;
+    sunCoverage.forEach(g => {
+      const color=g.count===0?'#8b3a1e':g.count<3?'#c4973a':'#7aaa58';
+      const el = document.createElement('div');
+      el.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0.4rem;border-bottom:1px solid rgba(122,170,88,0.06);cursor:pointer;border-radius:6px;margin:0 -0.4rem;transition:background 0.15s;';
+      el.innerHTML = `<span style="font-size:0.82rem;color:var(--mist);">☀️ ${g.label}</span>
+        <span style="font-size:0.8rem;color:${color};font-weight:500;">${g.count===0?'❌ Gap':g.count<3?`⚠️ ${g.count}`:g.count} plant${g.count!==1?'s':''}</span>`;
+      el.addEventListener('click', () => openGapDrawer('☀️ ' + g.label, g.rows));
+      el.addEventListener('mouseover', () => el.style.background='rgba(255,255,255,0.04)');
+      el.addEventListener('mouseout',  () => el.style.background='');
+      wrap.appendChild(el);
+    });
+  });
 
   // ── 5. Ecological role gaps ───────────────────────────────────────────
   const ecoCard = document.createElement('div');
   ecoCard.className = 'card';
-  const ecoCoverage = ECO_GROUPS.map(g => {
-    const count = plantRows.filter(r => g.keywords.some(kw => ecoOf(r).includes(kw))).length;
-    return { label: g.label, count };
-  }).sort((a,b) => a.count - b.count);
-  const ecoHTML = ecoCoverage.map(g => {
-    const color = g.count===0?'#8b3a1e':g.count<3?'#c4973a':'#7aaa58';
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0;border-bottom:1px solid rgba(122,170,88,0.06);">
-      <span style="font-size:0.82rem;color:var(--mist);">🌱 ${g.label}</span>
-      <span style="font-size:0.8rem;color:${color};font-weight:500;">${g.count===0?'❌ Gap':g.count<3?`⚠️ ${g.count}`:g.count} plant${g.count!==1?'s':''}</span>
-    </div>`;
-  }).join('');
+  const ecoCoverage = ECO_GROUPS.map(g => ({
+    label: g.label,
+    rows: plantRows.filter(r => g.keywords.some(kw => ecoOf(r).includes(kw))),
+    count: plantRows.filter(r => g.keywords.some(kw => ecoOf(r).includes(kw))).length
+  })).sort((a,b) => a.count - b.count);
   ecoCard.innerHTML = `<div class="card-title">🌱 Ecological Role Coverage</div>
-    <div class="card-sub">Are all ecological roles represented in your garden?</div>
-    <div style="margin-top:0.8rem;">${ecoHTML}</div>`;
+    <div class="card-sub">Click any row to see matching plants</div>
+    <div style="margin-top:0.8rem;" id="eco-rows"></div>`;
   grid.appendChild(ecoCard);
+  requestAnimationFrame(() => {
+    const wrap = document.getElementById('eco-rows');
+    if (!wrap) return;
+    ecoCoverage.forEach(g => {
+      const color=g.count===0?'#8b3a1e':g.count<3?'#c4973a':'#7aaa58';
+      const el = document.createElement('div');
+      el.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:0.5rem 0.4rem;border-bottom:1px solid rgba(122,170,88,0.06);cursor:pointer;border-radius:6px;margin:0 -0.4rem;transition:background 0.15s;';
+      el.innerHTML = `<span style="font-size:0.82rem;color:var(--mist);">🌱 ${g.label}</span>
+        <span style="font-size:0.8rem;color:${color};font-weight:500;">${g.count===0?'❌ Gap':g.count<3?`⚠️ ${g.count}`:g.count} plant${g.count!==1?'s':''}</span>`;
+      el.addEventListener('click', () => openGapDrawer('🌱 ' + g.label, g.rows));
+      el.addEventListener('mouseover', () => el.style.background='rgba(255,255,255,0.04)');
+      el.addEventListener('mouseout',  () => el.style.background='');
+      wrap.appendChild(el);
+    });
+  });
 
   // ── 6. Overall summary card ───────────────────────────────────────────
-  const wildGaps   = wildCoverage.filter(g=>g.count===0).map(g=>g.label);
-  const ecoGaps    = ecoCoverage.filter(g=>g.count===0).map(g=>g.label);
-  const moistGaps  = moistCoverage.filter(g=>g.count===0).map(g=>g.label);
-  const totalGaps  = wildGaps.length + ecoGaps.length + gapMonths.length + moistGaps.length;
-  const summaryColor = totalGaps===0?'#7aaa58':totalGaps<5?'#c4973a':'#8b3a1e';
+  const wildGaps  = wildCoverage.filter(g=>g.count===0).map(g=>g.label);
+  const ecoGaps   = ecoCoverage.filter(g=>g.count===0).map(g=>g.label);
+  const moistGaps = moistCoverage.filter(g=>g.count===0).map(g=>g.label);
+  const totalGaps = wildGaps.length + ecoGaps.length + gapMonths.length + moistGaps.length;
 
   const summCard = document.createElement('div');
   summCard.className = 'card wide';
@@ -1425,8 +1480,8 @@ function renderGapAnalysis(container) {
         ['🌱 Eco role gaps',    ecoGaps.length,   ecoGaps.join(', ')   || 'None — all roles covered'],
         ['📅 Bloom month gaps', gapMonths.length, gapMonths.join(', ') || 'None — all months covered'],
         ['💧 Moisture gaps',    moistGaps.length, moistGaps.join(', ') || 'None — all conditions covered'],
-      ].map(([label, count, detail]) => {
-        const c = count===0?'#7aaa58':count<3?'#c4973a':'#8b3a1e';
+      ].map(([label,count,detail]) => {
+        const c=count===0?'#7aaa58':count<3?'#c4973a':'#8b3a1e';
         return `<div style="background:rgba(255,255,255,0.03);border:1px solid ${c}33;border-radius:10px;padding:0.8rem;">
           <div style="font-size:0.75rem;color:var(--sage);margin-bottom:0.3rem;">${label}</div>
           <div style="font-size:1.4rem;font-family:'Playfair Display',serif;color:${c};line-height:1;">${count===0?'✓':count}</div>
