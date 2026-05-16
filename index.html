@@ -568,35 +568,43 @@ function col(row, name) {
 function extractInsectCount(text) {
   if (!text.trim()) return 0;
 
-  // "a total unique insect count of 24 documented species"
-  const countOf = text.match(/total\s+unique\s+insect\s+count\s+of\s+(\d+)/i);
-  if (countOf) return parseInt(countOf[1]);
+  // Try all patterns and take the highest number found (most likely the total)
+  const candidates = [];
 
-  // "a total of X unique insect species" or "X unique insect species"
-  const totalMatch = text.match(/(?:total\s+of\s+)?(\d+)\s+unique\s+insect\s+species/i);
-  if (totalMatch) return parseInt(totalMatch[1]);
+  const tryMatch = (rx) => {
+    const m = text.match(rx);
+    if (m) candidates.push(parseInt(m[1]||m[2]||0));
+  };
 
-  // "supports X species" or "X documented species"
-  const supportsMatch = text.match(/supports?\s+(?:a\s+total\s+of\s+)?(\d+)\s+(?:unique\s+)?(?:insect\s+)?species/i);
-  if (supportsMatch) return parseInt(supportsMatch[1]);
-
-  // "supporting a total unique insect count of X"
-  const supportingMatch = text.match(/supporting\s+a\s+total\s+(?:unique\s+)?insect\s+count\s+of\s+(\d+)/i);
-  if (supportingMatch) return parseInt(supportingMatch[1]);
-
+  // "a total unique insect count of 24"
+  tryMatch(/total\s+unique\s+insect\s+count\s+of\s+(\d+)/i);
+  // "X unique insect species"
+  tryMatch(/(\d+)\s+unique\s+insect\s+species/i);
+  // "supports X species" / "supporting X species"
+  tryMatch(/supporti?n?g?\s+(?:a\s+total\s+of\s+)?(\d+)\s+(?:unique\s+)?(?:insect\s+)?species/i);
   // "X documented species"
-  const documentedMatch = text.match(/(\d+)\s+documented\s+species/i);
-  if (documentedMatch) return parseInt(documentedMatch[1]);
+  tryMatch(/(\d+)\s+documented\s+species/i);
+  // "total count of primary insect associates at X"
+  tryMatch(/total\s+count\s+of\s+(?:primary\s+)?insect\s+associates\s+at\s+(\d+)/i);
+  // "total of X species" / "total X species"
+  tryMatch(/total\s+(?:of\s+)?(\d+)\s+(?:primary\s+)?(?:insect|species)/i);
+  // "X species are documented"
+  tryMatch(/(\d+)\s+species\s+are\s+documented/i);
+  // "X species of Lepidoptera"
+  tryMatch(/(\d+)\s+species\s+of\s+(?:lepidoptera|moths?|butterflies)/i);
+  // "over X species" or "X+ species"
+  tryMatch(/(?:over|more\s+than)\s+(\d+)\s+species|(\d+)\+\s+species/i);
+  // "X Lepidoptera species"
+  tryMatch(/(\d+)\s+(?:types?\s+of\s+)?(?:moths?|butterflies|caterpillar|lepidoptera)\s+species/i);
+  // "at X species" at end of sentence (e.g. "maintains the total count...at 139 species")
+  tryMatch(/\bat\s+(\d+)\s+species/i);
 
-  // "over X species" or "400+ species"
-  const overMatch = text.match(/(?:over|more\s+than)\s+(\d+)\s+species|(\d+)\+\s+species/i);
-  if (overMatch) return parseInt(overMatch[1] || overMatch[2]);
+  if (candidates.length > 0) {
+    // Return the highest number — most likely the grand total
+    return Math.max(...candidates);
+  }
 
-  // "X moths and butterflies" or "X caterpillar species"
-  const lepMatch = text.match(/(\d+)\s+(?:types?\s+of\s+)?(?:moths?|butterflies|caterpillar|lepidoptera)\s+species/i);
-  if (lepMatch) return parseInt(lepMatch[1]);
-
-  // Fall back to comma count for old format entries
+  // Fall back to comma count for simple old-format entries
   return text.split(/[,;]|\band\b/).map(s=>s.trim()).filter(Boolean).length;
 }
 
